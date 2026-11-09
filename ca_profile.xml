@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <Profile>Unraid Community Applications templates maintained by Arvind Arik for Contrack, a self-hosted personal CRM. Report bugs, questions, or template issues at https://github.com/arvarik/contrack/issues.</Profile>
+  <Icon>https://raw.githubusercontent.com/arvarik/contrack/main/public/icon-512.png</Icon>
+  <WebPage>https://github.com/arvarik</WebPage>
+</CommunityApplications>

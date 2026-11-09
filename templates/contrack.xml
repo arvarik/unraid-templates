@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>Contrack</Name>
+  <Repository>ghcr.io/arvarik/contrack:latest</Repository>
+  <Registry>https://github.com/arvarik/contrack/pkgs/container/contrack</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/arvarik/contrack/issues</Support>
+  <Project>https://github.com/arvarik/contrack</Project>
+  <ReadMe>https://github.com/arvarik/contrack/blob/main/docs/self-hosting.md</ReadMe>
+  <Overview>Self-hosted personal CRM for managing contacts, notes, interactions, and relationships in one SQLite database. Search runs locally on built-in CPU models, and AI providers (Gemini, OpenAI, Anthropic, or an OpenAI-compatible server) are optional and configured inside the app. Sign-in is enabled by default; open the WebUI after first start to create the admin account. All database files, uploads, snapshots, and the encryption key live in /mnt/user/appdata/contrack.</Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:3210]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/arvarik/unraid-templates/main/templates/contrack.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/arvarik/contrack/main/public/icon-512.png</Icon>
+  <ExtraParams>--user 99:100 -e NODE_COMPILE_CACHE=/tmp/compile-cache</ExtraParams>
+  <ExtraSearchTerms>crm contacts personal-crm relationships address-book sqlite mcp</ExtraSearchTerms>
+  <License>AGPL-3.0-only</License>
+  <Config Name="WebUI Port" Target="3210" Default="3210" Mode="tcp" Description="HTTP port for the Contrack WebUI and API." Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="App Data" Target="/app/data" Default="/mnt/user/appdata/contrack" Mode="rw" Description="Persistent storage for curator.db, uploads, backups, and secret.key." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Require Sign-In" Target="AUTH_REQUIRED" Default="true" Description="Require account sign-in (true or false). Keep true whenever the port is reachable beyond localhost; first visit creates the admin account." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Public URL" Target="PUBLIC_URL" Default="" Description="Optional external root origin with http or https and no path (for example https://crm.example.com) when behind a reverse proxy. Used for passkeys, mail links, OAuth, and CSRF checks." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Reverse Proxy Hops" Target="TRUST_PROXY_HOPS" Default="0" Description="Number of reverse proxies in front of Contrack (0 to 10). Set to 1 behind a single reverse proxy so X-Forwarded-* headers are trusted." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Allowed Hosts" Target="ALLOWED_HOSTS" Default="" Description="Optional comma-separated hostnames allowed before the first account is created or while sign-in is off (for example nas.tail1234.ts.net)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+</Container>
