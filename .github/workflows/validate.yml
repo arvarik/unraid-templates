@@ -1,0 +1,39 @@
+name: Validate Unraid Templates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: XML & CA Portal Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install xmllint
+        run: |
+          if ! command -v xmllint >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends libxml2-utils
+          fi
+
+      - name: Validate XML syntax with xmllint
+        run: |
+          if [ -f ca_profile.xml ]; then
+            xmllint --noout ca_profile.xml templates/*.xml
+          fi
+
+      - name: Validate Unraid CA submission requirements
+        run: |
+          if [ -f ca_profile.xml ]; then
+            python3 scripts/validate.py
+          else
+            python3 scripts/validate.py --bootstrap
+          fi
