@@ -25,15 +25,7 @@ jobs:
           fi
 
       - name: Validate XML syntax with xmllint
-        run: |
-          if [ -f ca_profile.xml ]; then
-            xmllint --noout ca_profile.xml templates/*.xml
-          fi
+        run: xmllint --noout ca_profile.xml templates/*.xml
 
       - name: Validate Unraid CA submission requirements
-        run: |
-          if [ -f ca_profile.xml ]; then
-            python3 scripts/validate.py
-          else
-            python3 scripts/validate.py --bootstrap
-          fi
+        run: python3 scripts/validate.py

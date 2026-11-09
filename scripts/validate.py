@@ -7,11 +7,10 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -128,37 +127,71 @@ PLACEHOLDER_PATTERNS = (
 )
 
 
-def http_check(
+def curl_head_or_get(
     url: str,
     *,
     headers: dict[str, str] | None = None,
-    method: str = "GET",
+    head_only: bool = True,
     attempts: int = 4,
     retry_404: bool = False,
-) -> tuple[int, dict[str, str], bytes]:
-    req_headers = {"User-Agent": USER_AGENT, **(headers or {})}
+) -> tuple[int, dict[str, str], str]:
     retry_codes = {429, 500, 502, 503, 504} | ({404} if retry_404 else set())
-    last_err: Exception | None = None
+    last_err = ""
     for attempt in range(attempts):
-        req = urllib.request.Request(url, headers=req_headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                body = resp.read(4096) if method == "GET" else b""
-                hdrs = {k.lower(): v for k, v in resp.headers.items()}
-                return resp.status, hdrs, body
-        except urllib.error.HTTPError as exc:
-            if exc.code in retry_codes and attempt + 1 < attempts:
-                time.sleep(2**attempt)
-                last_err = exc
-                continue
-            raise
-        except (urllib.error.URLError, TimeoutError) as exc:
+        hdr_cmd = ["curl", "-sS", "-L", "--max-time", "15", "-A", USER_AGENT, "-D", "-"]
+        if head_only:
+            hdr_cmd.append("-I")
+        for k, v in (headers or {}).items():
+            hdr_cmd.extend(["-H", f"{k}: {v}"])
+        if head_only:
+            hdr_cmd.extend(["-o", "/dev/null", url])
+        else:
+            hdr_cmd.append(url)
+
+        proc = subprocess.run(hdr_cmd, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            last_err = proc.stderr.strip() or f"curl exited {proc.returncode}"
             if attempt + 1 < attempts:
                 time.sleep(2**attempt)
-                last_err = exc
                 continue
-            raise
-    raise RuntimeError(f"Unreachable {url}: {last_err}")
+            raise RuntimeError(last_err)
+
+        raw = proc.stdout
+        blocks = re.split(r"\r?\n\r?\n", raw)
+        status = 0
+        parsed_headers: dict[str, str] = {}
+        body = ""
+        last_http_idx = -1
+        for idx, blk in enumerate(blocks):
+            if blk.startswith("HTTP/"):
+                last_http_idx = idx
+        if last_http_idx >= 0:
+            lines = blocks[last_http_idx].splitlines()
+            m = re.match(r"HTTP/\S+\s+(\d+)", lines[0])
+            if m:
+                status = int(m.group(1))
+            for line in lines[1:]:
+                if ":" in line:
+                    hk, hv = line.split(":", 1)
+                    parsed_headers[hk.strip().lower()] = hv.strip()
+            if not head_only and last_http_idx + 1 < len(blocks):
+                body = "\n\n".join(blocks[last_http_idx + 1 :])
+
+        if status == 405 and head_only:
+            return curl_head_or_get(
+                url,
+                headers=headers,
+                head_only=False,
+                attempts=attempts - attempt,
+                retry_404=retry_404,
+            )
+        if status in retry_codes and attempt + 1 < attempts:
+            time.sleep(2**attempt)
+            last_err = f"HTTP {status}"
+            continue
+        return status, parsed_headers, body
+
+    raise RuntimeError(last_err or f"Failed fetching {url}")
 
 
 def check_url_200(
@@ -174,7 +207,7 @@ def check_url_200(
         errors.append(f"{label}: expected https:// URL, got {url!r}")
         return
     try:
-        status, hdrs, _ = http_check(url, retry_404=retry_404)
+        status, hdrs, _ = curl_head_or_get(url, head_only=True, retry_404=retry_404)
     except Exception as exc:
         errors.append(f"{label}: HTTP check failed for {url}: {exc}")
         return
@@ -197,10 +230,11 @@ def check_ghcr_manifest(repository: str, errors: list[str]) -> None:
     image, tag = m.group(1), m.group(2)
     token_url = f"https://ghcr.io/token?scope=repository:{image}:pull"
     try:
-        req = urllib.request.Request(token_url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            token_data = json.loads(resp.read().decode("utf-8"))
-        token = token_data.get("token")
+        t_status, _, t_body = curl_head_or_get(token_url, head_only=False)
+        if t_status != 200:
+            errors.append(f"<Repository>: GHCR token request returned {t_status} for {repository}")
+            return
+        token = json.loads(t_body).get("token")
         if not token:
             errors.append(f"<Repository>: GHCR token response missing token for {repository}")
             return
@@ -213,9 +247,10 @@ def check_ghcr_manifest(repository: str, errors: list[str]) -> None:
                 "application/vnd.docker.distribution.manifest.v2+json",
             ]
         )
-        status, hdrs, _ = http_check(
+        status, hdrs, _ = curl_head_or_get(
             manifest_url,
             headers={"Authorization": f"Bearer {token}", "Accept": accept},
+            head_only=True,
         )
         if status != 200:
             errors.append(f"<Repository>: GHCR manifest check returned {status} for {repository}")
@@ -423,11 +458,6 @@ def main() -> int:
         default=os.environ.get("GITHUB_REF") == "refs/heads/main",
         help="Also verify <TemplateURL> returns HTTP 200 on raw.githubusercontent.com",
     )
-    parser.add_argument(
-        "--bootstrap",
-        action="store_true",
-        help="Allow missing XML files on the initial repository bootstrap commit",
-    )
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parent.parent
@@ -442,14 +472,6 @@ def main() -> int:
     for forbidden in ("templates/example-app.xml", "plugins/example-plugin.xml", "icon.svg"):
         if (root / forbidden).exists():
             errors.append(f"Leftover starter placeholder file must be removed: {forbidden}")
-
-    if args.bootstrap and not (root / "ca_profile.xml").exists():
-        if errors:
-            for err in errors:
-                print(f"ERROR: {err}", file=sys.stderr)
-            return 1
-        print("Bootstrap repository check passed (0 errors, 0 warnings).")
-        return 0
 
     validate_profile(root, errors)
 
